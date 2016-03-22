@@ -1,4 +1,4 @@
-;; -*- mode: clojure; eval: (paredit-mode 1);-*-
+;; -*- mode: clojure; -*-
 
 (ns torque.reader.types
   (:require [torque.string :as str]))
