@@ -1,0 +1,25 @@
+;; -*- mode: clojure; eval: (paredit-mode 1);-*-
+
+(ns torque.reader.types
+  (:require [torque.string :as str]))
+
+(defprotocol Stream
+  (read-char [_])  ;; "Gets one char from the reader and consumes it"
+  (peek-char [_])) ;; "Gets one char from the reader but doesn't consume it"
+
+(deftype StringStream [str ^:mutable pos]
+
+  Stream
+
+  (read-char [this]
+    (when (< pos (count str))
+      (let [ch (str/at str pos)]
+        (set! this pos (inc pos))
+        ch)))
+
+  (peek-char [_]
+    (when (< pos (count str))
+      (str/at str pos))))
+
+(defn string-stream [s]
+  (new StringStream s 0))

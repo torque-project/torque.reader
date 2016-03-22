@@ -1,0 +1,182 @@
+;; -*- mode: clojure; eval: (paredit-mode 1);-*-
+
+(ns torque.reader
+  (:require
+    [torque.reader.types :as ty] ;; (get-char peek-char)
+    [torque.string :as str]))
+
+(def macros (make-array 256))
+
+(defn macro? [ch]
+  (and (> 0 ch) (< ch 256) (boolean (aget macros ch))))
+
+(declare read read-or-skip)
+
+(defn ^:private list-reader [until ctor]
+  (fn [stream]
+    (loop [out []] ;; should be transient
+      (let [x (read-or-skip stream until)]
+        (if (or (nil? x) (= x until))
+          (apply ctor out)
+          (recur (conj out x)))))))
+
+(defn ^:private wrap-reader [sym]
+  (fn [stream]
+    (list sym (read stream))))
+
+(defn ^:private unbalanced [type]
+  (fn [stream]
+    (throw
+      (ex-info
+        (str "Encountered unbalanced parenthesis: "
+             type
+             ", while reading")
+        {:type type}))))
+
+(defn ^:private throw-unknown-escape [ch stream]
+  (throw
+    (ex-info
+      (str "Encountered unknown escape sequence: "
+           ch
+           ", while reading")
+      {:char ch})))
+
+(defn ^:private throw-incomplete-escape [stream]
+  (throw (ex-info "Incomplete escape sequence" {})))
+
+(defn ^:private throw-eos [stream]
+  (throw
+    (ex-info "End of stream reached before finishing form"
+      {})))
+
+(defn ^:private whitespace? [ch]
+  (when-not (nil? ch)
+    (or (== ch \,)
+        (str/whitespace? ch))))
+
+(defn ^:private number-literal? [ch stream]
+  (or (str/digit? ch)
+      (and (or (== ch \+) (== ch \-))
+           (-> stream ty/peek-char str/alpha-numeric?))))
+
+(defn ^:private end-token? [ch]
+  (or (nil? ch) (macro? ch) (whitespace? ch)))
+
+(defn ^:private render [coll]
+  (string (apply binary coll)))
+
+(defn ^:private read-token [init stream]
+  (loop [ch  init
+         out []] ;; TODO: should be transient
+    (let [nxt (ty/peek-char stream)]
+      (if (end-token? nxt)
+        (render (conj out ch))
+        (recur (ty/read-char stream) (conj out ch))))))
+
+(defn ^:private read-line [stream]
+  (loop []
+    (let [ch (ty/read-char stream)]
+      (when (and ch (not (== ch \newline)))
+        (recur)))))
+
+(defn ^:private parse-number [s]
+  (or
+    (str/parse-int s)
+    ;; (str/parse-float s)
+    ))
+
+(defn ^:private escape-char [init stream]
+  (if (== init \\)
+    (if-let [ch (ty/read-char stream)]
+      (cond
+        (== ch \0) \0
+        (== ch \t) \t
+        (== ch \r) \r
+        (== ch \n) \n
+        (== ch \\) \\
+        (== ch \") \"
+        (== ch \a) \a
+        (== ch \b) \b
+        (== ch \f) \f
+        ;; TODO: allow unicode escape sequences
+        :else (throw-unknown-escape ch stream))
+      (throw-incomplete-escape stream))
+    init))
+
+(defn ^:private read-string [stream]
+  (loop [ch  (ty/read-char stream)
+         out []]
+    (if-not (nil? ch)
+      (if (== ch \")
+        (render out)
+        (let [escaped (escape-char ch stream)]
+          (recur (ty/read-char stream) (conj out escaped))))
+      (throw-eos stream))))
+
+(defn ^:private read-keyword [stream]
+  (if-let [init (ty/read-char stream)]
+    (let [token (read-token init stream)]
+      (keyword token))
+    (throw-eos stream)))
+
+(defn ^:private try-number [init stream]
+  (when (number-literal? init stream)
+    (parse-number (read-token init stream))))
+
+(defn ^:private try-macros [init stream]
+  (when-let [macro (aget macros init)]
+    (macro stream)))
+
+(defn ^:private try-symbol [init stream]
+  (let [token (read-token init stream)]
+    (cond
+      (= token "nil")   nil
+      (= token "true")  true
+      (= token "false") false
+      :else (symbol token))))
+
+(defn ^:private skip-comments [stream]
+  (loop []
+    (when (== (ty/peek-char stream) \;)
+      (read-line stream)
+      (recur)))
+  stream)
+
+(defn ^:private skip-whitespace [stream]
+  (loop []
+    (when (whitespace? (ty/peek-char stream))
+      (ty/read-char stream)
+      (recur)))
+  stream)
+
+(defn ^:private read-or-skip [stream terminator]
+  (skip-whitespace stream)
+  (skip-comments stream)
+  ;; skip comments
+  (if-let [ch (ty/read-char stream)]
+    (if (= ch terminator)
+      terminator
+      (or
+        (try-number ch stream)
+        (try-macros ch stream)
+        (try-symbol ch stream)))
+    ;;...eof...
+    nil))
+
+(defn read [stream]
+  (read-or-skip stream nil))
+
+(aset macros \( (list-reader \) list))
+(aset macros \[ (list-reader \] vector))
+(aset macros \{ (list-reader \} hash-map))
+;; (aset macros \\ read-char)
+(aset macros \" read-string)
+(aset macros \: read-keyword)
+(aset macros \' (wrap-reader 'quote))
+(aset macros \@ (wrap-reader 'torque.core/deref))
+;; (aset macros \` syntax-quote)
+;; (aset macros \~ read-unquote)
+;; (aset macros \# read-extension)
+(aset macros \) (unbalanced ")"))
+(aset macros \] (unbalanced "]"))
+(aset macros \} (unbalanced "}"))
