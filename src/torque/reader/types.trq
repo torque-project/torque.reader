@@ -1,25 +1,27 @@
 ;; -*- mode: clojure; -*-
 
-(ns torque.reader.types
-  (:require [torque.string :as str]))
+(ns torque.reader.types)
 
 (defprotocol Stream
-  (read-char [_])  ;; "Gets one char from the reader and consumes it"
-  (peek-char [_])) ;; "Gets one char from the reader but doesn't consume it"
+  (peek-char [this])  ;; "Gets one char from the reader and consumes it"
+  (read-char [this])) ;; "Gets one char from the reader but doesn't consume it"
 
-(deftype StringStream [str ^:mutable pos]
+(deftype IOStream [io current pos]
 
   Stream
 
+  (peek-char [this]
+    (when (or (not current) (<= (blength current) pos))
+      (set! this current (first io))
+      (set! this io (next io))
+      (set! this pos 0))
+    (when current
+      (and current (bget current pos))))
+
   (read-char [this]
-    (when (< pos (count str))
-      (let [ch (str/at str pos)]
-        (set! this pos (inc pos))
-        ch)))
+    (when-let [ch (peek-char this)]
+      (set! this pos (inc pos))
+      ch)))
 
-  (peek-char [_]
-    (when (< pos (count str))
-      (str/at str pos))))
-
-(defn string-stream [s]
-  (new StringStream s 0))
+(defn io-stream [io]
+  (new IOStream io nil 0))
