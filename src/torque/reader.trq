@@ -46,7 +46,7 @@
   (fn [stream]
     (loop [out []] ;; should be transient
       (let [x (read-or-skip stream until)]
-        (if (or (nil? x) (= x until))
+        (if (= x until)
           (apply ctor out)
           (recur (conj out x)))))))
 
