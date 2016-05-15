@@ -24,4 +24,9 @@
       ch)))
 
 (defn io-stream [io]
-  (new IOStream io nil 0))
+  (cond
+    (string? io)  (io-stream (bytes io))
+    (binary? io)  (io-stream [io])
+    (seqable? io) (new IOStream io nil 0)
+    :else
+    (throw (ex-info "Can't convert value to io stream" {:in io}))))
