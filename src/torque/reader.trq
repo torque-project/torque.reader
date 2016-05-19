@@ -35,6 +35,16 @@
     (ex-info (str "Encountered unkonwn char sequence: " token)
       {:token token})))
 
+(defn ^:private throw-form-not-meta [form stream]
+  (throw
+   (ex-info (str "Can't set meta on form that doesn't support meta data")
+     {:form form})))
+
+(defn ^:private throw-not-a-meta-form [form stream]
+  (throw
+    (ex-info (str "Form started with ^ but is not a meta form")
+      {:form form})))
+
 (defn ^:private throw-eos [stream]
   (throw
     (ex-info "End of stream reached before finishing form"
@@ -140,6 +150,16 @@
       (keyword token))
     (throw-eos stream)))
 
+(defn ^:private read-meta [stream]
+  (let [meta (read-or-skip stream nil)
+        form (read-or-skip stream nil)]
+    (if (has-meta? form)
+      (cond
+        (keyword? meta) (vary-meta form assoc meta true)
+        (map? meta)     (vary-meta form merge meta)
+        :else           (throw-not-a-meta-form meta stream))
+      (throw-form-not-meta form stream))))
+
 ;; (defn ^:private read-unquote [stream]
 ;;   (if-let [ch (ty/peek-char stream)]
 ;;     (let [sym (if (== \@)
@@ -207,6 +227,7 @@
 (aset macros \\ read-char)
 (aset macros \" read-string)
 (aset macros \: read-keyword)
+(aset macros \^ read-meta)
 (aset macros \@ (wrap-reader 'torque.core/deref))
 (aset macros \' (wrap-reader 'quote))
 ;; (aset macros \` syntax-quote)
