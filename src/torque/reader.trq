@@ -5,10 +5,19 @@
     [torque.reader.types :as ty] ;; (get-char peek-char)
     [torque.string :as str]))
 
-(def macros (make-array 256))
+(def *features* nil)
 
-(defn macro? [ch]
-  (and (> ch 0) (< ch 256) (boolean (aget macros ch))))
+(def macros     (make-array 128))
+(def extensions (make-array 128))
+
+(defn macro? [macros ch]
+  (and (> ch 0) (< ch 128) (boolean (aget macros ch))))
+
+(defn ^:private throw-not-an-extension [token]
+  (throw
+    (ex-info (str "Char does not dispatch to a reader extension: "
+                  (string (bytes token)))
+      {:token token})))
 
 (defn ^:private unbalanced [type]
   (fn [stream]
@@ -45,6 +54,17 @@
     (ex-info (str "Form started with ^ but is not a meta form")
       {:form form})))
 
+(defn ^:private throw-not-a-reader-conditional [form]
+  (throw
+    (ex-info "Form is not a seq of reader conditional branches"
+      {:form form})))
+
+(defn ^:private throw-no-reader-condition-applies [form]
+  (throw
+    (ex-info "No reader condition applies and no default branch was given"
+      {:form     form
+       :features *features*})))
+
 (defn ^:private throw-eos [stream]
   (throw
     (ex-info "End of stream reached before finishing form"
@@ -75,7 +95,7 @@
            (-> stream ty/peek-char str/digit?))))
 
 (defn ^:private end-token? [ch]
-  (or (nil? ch) (macro? ch) (whitespace? ch)))
+  (or (nil? ch) (macro? macros ch) (whitespace? ch)))
 
 (defn ^:private render [coll]
   (string (apply binary coll)))
@@ -160,6 +180,18 @@
         :else           (throw-not-a-meta-form meta stream))
       (throw-form-not-meta form stream))))
 
+(defn ^:private select-branch [kv]
+  (when (or (and *features* (*features* (first kv)))
+            (= :default (first kv)))
+    (second kv)))
+
+(defn ^:private read-conditional [stream]
+  (let [form (read-or-skip stream nil)]
+    (if (seq? form)
+      (or (some select-branch (partition 2 form))
+          (throw-no-reader-condition-applies form))
+      (throw-not-a-reader-conditional form))))
+
 ;; (defn ^:private read-unquote [stream]
 ;;   (if-let [ch (ty/peek-char stream)]
 ;;     (let [sym (if (== \@)
@@ -168,13 +200,23 @@
 ;;                 'torque.core/unquote)]
 ;;       (list sym (read stream)))))
 
+(defn ^:private read-macro [macros init stream]
+  (when-let [macro (aget macros init)]
+    (macro stream)))
+
+(defn ^:private read-extension [stream]
+  (if-let [init (read-char stream)]
+    (if (macro? extensions init)
+      (read-macro extensions init stream)
+      (throw-not-an-extension init))
+    (throw-eos stream)))
+
 (defn ^:private try-number [init stream]
   (when (number-literal? init stream)
     (parse-number (read-token init stream))))
 
 (defn ^:private try-macros [init stream]
-  (when-let [macro (aget macros init)]
-    (macro stream)))
+  (read-macro macros init stream))
 
 (defn ^:private try-symbol [init stream]
   (let [token (read-token init stream)]
@@ -221,6 +263,10 @@
 (defn io-stream [io]
   (ty/io-stream io))
 
+(defmacro with-features [features & forms]
+  `(binding [*features* (set (concat *features* ~features))]
+     ~@forms))
+
 (aset macros \( (list-reader \) list))
 (aset macros \[ (list-reader \] vector))
 (aset macros \{ (list-reader \} hash-map))
@@ -232,7 +278,9 @@
 (aset macros \' (wrap-reader 'quote))
 ;; (aset macros \` syntax-quote)
 ;; (aset macros \~ read-unquote)
-;; (aset macros \# read-extension)
+(aset macros \# read-extension)
 (aset macros \) (unbalanced ")"))
 (aset macros \] (unbalanced "]"))
 (aset macros \} (unbalanced "}"))
+
+(aset extensions \? read-conditional)
