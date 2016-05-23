@@ -1,0 +1,29 @@
+(ns torque.reader-test
+  (:require [torque.test   :refer :all]
+            [torque.reader :as r]))
+
+(defn read-str [s]
+  (let [res (r/read (r/io-stream s))]
+    (println s "=>" res)
+    res))
+
+(deftest syntax-quote
+  (testing "basics"
+    (is (= ''x (read-str "`x")))
+    (read-str "`:foo")
+    (read-str "`[x :a]")
+    (read-str "`(x)")
+    (read-str "`{:a x}"))
+  (testing "auto gensym"
+    (read-str "`x#")
+    (read-str "`[x# x#]"))
+  (testing "unquote"
+    (is (= 'x (read-str "`~x")))
+    (read-str "`'~x")
+    (read-str "`[x ~u]")
+    (read-str "`(~u x)")
+    (read-str "`{:a ~u}"))
+  (testing "unquote-splicing"
+    (read-str "`[x ~@a]")
+    (read-str "`(~@a x)")
+    (read-str "`{:a ~u ~@a}")))

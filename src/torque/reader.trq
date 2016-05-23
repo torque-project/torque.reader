@@ -95,7 +95,11 @@
            (-> stream ty/peek-char str/digit?))))
 
 (defn ^:private end-token? [ch]
-  (or (nil? ch) (macro? macros ch) (whitespace? ch)))
+  (or (nil? ch)
+      (and (macro? macros ch)
+           (not= ch \')
+           (not= ch \#))
+      (whitespace? ch)))
 
 (defn ^:private render [coll]
   (string (apply binary coll)))
@@ -192,13 +196,73 @@
           (throw-no-reader-condition-applies form))
       (throw-not-a-reader-conditional form))))
 
-;; (defn ^:private read-unquote [stream]
-;;   (if-let [ch (ty/peek-char stream)]
-;;     (let [sym (if (== \@)
-;;                 (do (ty/read-char stream)
-;;                     'torque.core/unquote-splicing)
-;;                 'torque.core/unquote)]
-;;       (list sym (read stream)))))
+(defn ^:private read-unquote [stream]
+  (if-let [ch (ty/peek-char stream)]
+    (let [sym (if (== ch \@)
+                (do (ty/read-char stream)
+                    'torque.core/unquote-splicing)
+                'torque.core/unquote)]
+      (list sym (read-or-skip stream nil)))
+    (throw-eos stream)))
+
+(defn ^:private quote? [form]
+  (and (list? form)
+       (= 'quote (first form))))
+
+(defn ^:private unquote? [form]
+  (and (list? form)
+       (= 'torque.core/unquote (first form))))
+
+(defn ^:private unquote-splicing? [form]
+  (and (list? form)
+       (= 'torque.core/unquote-splicing (first form))))
+
+(def ^:dynamic ^:private *auto-gensyms* nil)
+
+(defn expand-auto-gensym [symbol]
+  (or (get @*auto-gensyms* symbol)
+      (let [auto-sym (gensym (str (name symbol) "_"))]
+        (swap! *auto-gensyms* assoc symbol auto-sym)
+        auto-sym)))
+
+(declare expand-quoted-seq)
+
+(defn ^:private expand-syntax-quote [form]
+  (cond (symbol? form)  (if (str/ends-with? (name form) "#")
+                          (list 'quote (expand-auto-gensym form))
+                          (list 'quote form))
+        (quote? form)   (list 'list ''quote (expand-syntax-quote (second form)))
+        (unquote? form) (second form)
+        (vector? form)  (->> form
+                             expand-quoted-seq
+                             (list 'torque.core/apply 'torque.core/vector))
+        (list? form)    (->> form
+                             expand-quoted-seq
+                             (list 'torque.core/seq))
+        (set? form)     (->> form
+                             expand-quoted-seq
+                             (list 'torque.core/hash-set))
+        (map? form)     (->> form
+                             (apply concat)
+                             expand-quoted-seq
+                             (list 'torque.core/apply 'torque.core/hash-map))
+        :else           form))
+
+(defn ^:private expand-quoted-seq [coll]
+  (->> coll
+       (map (fn [form]
+              (cond
+                (unquote-splicing? form) (second form)
+                :else                    (vector (expand-syntax-quote form)))))
+       vec
+       (cons 'torque.core/concat)))
+
+(defn ^:private read-syntax-quote [stream]
+  (if-let [form (read-or-skip stream nil)]
+    (binding [*auto-gensyms* (atom {})]
+      #_(trace "read-syntax-quote")
+      (expand-syntax-quote form))
+    (throw-eos stream)))
 
 (defn ^:private read-macro [macros init stream]
   (when-let [macro (aget macros init)]
@@ -276,8 +340,8 @@
 (aset macros \^ read-meta)
 (aset macros \@ (wrap-reader 'torque.core/deref))
 (aset macros \' (wrap-reader 'quote))
-;; (aset macros \` syntax-quote)
-;; (aset macros \~ read-unquote)
+(aset macros \` read-syntax-quote)
+(aset macros \~ read-unquote)
 (aset macros \# read-extension)
 (aset macros \) (unbalanced ")"))
 (aset macros \] (unbalanced "]"))
