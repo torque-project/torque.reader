@@ -4,26 +4,29 @@
 
 (defn read-str [s]
   (let [res (r/read (r/io-stream s))]
-    (println s "=>" res)
+    #_(println s "=>" res)
     res))
 
 (deftest syntax-quote
-  (testing "basics"
-    (is (= ''x (read-str "`x")))
-    (read-str "`:foo")
-    (read-str "`[x :a]")
-    (read-str "`(x)")
-    (read-str "`{:a x}"))
-  (testing "auto gensym"
-    (read-str "`x#")
-    (read-str "`[x# x#]"))
-  (testing "unquote"
-    (is (= 'x (read-str "`~x")))
-    (read-str "`'~x")
-    (read-str "`[x ~u]")
-    (read-str "`(~u x)")
-    (read-str "`{:a ~u}"))
-  (testing "unquote-splicing"
-    (read-str "`[x ~@a]")
-    (read-str "`(~@a x)")
-    (read-str "`{:a ~u ~@a}")))
+  (binding [r/*resolve-symbol* (fn [sym]
+                                 (symbol (str "user/" sym)))]
+    (testing "basics"
+      (is (= ''user/x (read-str "`x")))
+      (is (= '(list 'quote 'user/x) (read-str "`'x")))
+      (read-str "`:foo")
+      (read-str "`[x :a]")
+      (read-str "`(x)")
+      (read-str "`{:a x}"))
+    (testing "auto gensym"
+      (read-str "`x#")
+      (read-str "`[x# x#]"))
+    (testing "unquote"
+      (is (= 'x (read-str "`~x")))
+      (is (= ''x (read-str "`~'x")))
+      (read-str "`'~x")
+      (read-str "`[x ~u]")
+      (read-str "`(~u x)")
+      (read-str "`{:a ~u}"))
+    (testing "unquote-splicing"
+      (read-str "`[x ~@a]")
+      (read-str "`(~@a x)"))))

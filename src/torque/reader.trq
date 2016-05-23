@@ -7,6 +7,14 @@
 
 (def *features* nil)
 
+(def ^:dynamic *resolve-symbol*
+  "Qualifies a symbol with its full namespace"
+  (fn [symbol]
+    (throw
+     (ex-info (str "Symbol resolution isn't available in this reader environment,"
+                   "thus syntax quote cannot be used.")
+              {:symbol symbol}))))
+
 (def macros     (make-array 128))
 (def extensions (make-array 128))
 
@@ -230,7 +238,7 @@
 (defn ^:private expand-syntax-quote [form]
   (cond (symbol? form)  (if (str/ends-with? (name form) "#")
                           (list 'quote (expand-auto-gensym form))
-                          (list 'quote form))
+                          (list 'quote (*resolve-symbol* form)))
         (quote? form)   (list 'list ''quote (expand-syntax-quote (second form)))
         (unquote? form) (second form)
         (vector? form)  (->> form
@@ -243,9 +251,10 @@
                              expand-quoted-seq
                              (list 'torque.core/hash-set))
         (map? form)     (->> form
-                             (apply concat)
-                             expand-quoted-seq
-                             (list 'torque.core/apply 'torque.core/hash-map))
+                             (map (fn [[k v]]
+                                    [(expand-syntax-quote k)
+                                     (expand-syntax-quote v)]))
+                             (into {}))
         :else           form))
 
 (defn ^:private expand-quoted-seq [coll]
@@ -260,7 +269,6 @@
 (defn ^:private read-syntax-quote [stream]
   (if-let [form (read-or-skip stream nil)]
     (binding [*auto-gensyms* (atom {})]
-      #_(trace "read-syntax-quote")
       (expand-syntax-quote form))
     (throw-eos stream)))
 
