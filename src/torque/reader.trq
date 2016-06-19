@@ -243,13 +243,14 @@
         (unquote? form) (second form)
         (vector? form)  (->> form
                              expand-quoted-seq
-                             (list 'torque.core/apply 'torque.core/vector))
+                             (list 'torque.lang.squote/apply
+                                   'torque.lang.vector/vector))
         (list? form)    (->> form
                              expand-quoted-seq
-                             (list 'torque.core/seq))
+                             (list 'torque.lang.boot/seq))
         (set? form)     (->> form
                              expand-quoted-seq
-                             (list 'torque.core/hash-set))
+                             (list 'torque.lang.set/hash-set))
         (map? form)     (->> form
                              (map (fn [[k v]]
                                     [(expand-syntax-quote k)
@@ -261,10 +262,12 @@
   (->> coll
        (map (fn [form]
               (cond
-                (unquote-splicing? form) (second form)
-                :else                    (vector (expand-syntax-quote form)))))
+                (unquote-splicing? form)
+                  (second form)
+                :else
+                  (vector (expand-syntax-quote form)))))
        vec
-       (cons 'torque.core/concat)))
+       (cons 'torque.lang.squote/concat)))
 
 (defn ^:private read-syntax-quote [stream]
   (if-let [form (read-or-skip stream nil)]
@@ -346,7 +349,7 @@
 (aset macros \" read-string)
 (aset macros \: read-keyword)
 (aset macros \^ read-meta)
-(aset macros \@ (wrap-reader 'torque.core/deref))
+(aset macros \@ (wrap-reader 'torque.lang.boot/deref))
 (aset macros \' (wrap-reader 'quote))
 (aset macros \` read-syntax-quote)
 (aset macros \~ read-unquote)
