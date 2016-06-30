@@ -11,8 +11,8 @@
   "Qualifies a symbol with its full namespace"
   (fn [symbol]
     (throw
-     (ex-info (str "Symbol resolution isn't available in this reader environment,"
-                   "thus syntax quote cannot be used.")
+     (ex-info (str "Symbol resolution isn't available in this reader "
+                   "environment, thus syntax quote cannot be used.")
               {:symbol symbol}))))
 
 (def macros     (make-array 128))
@@ -359,3 +359,4 @@
 (aset macros \} (unbalanced "}"))
 
 (aset extensions \? read-conditional)
+(aset extensions \{ (list-reader \} hash-set))
