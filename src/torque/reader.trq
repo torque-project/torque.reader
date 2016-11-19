@@ -137,15 +137,15 @@
   (if (== init \\)
     (if-let [ch (ty/read-char stream)]
       (cond
-        (== ch \0) \0
-        (== ch \t) \t
-        (== ch \r) \r
-        (== ch \n) \n
+        (== ch \0) 0
+        (== ch \t) \tab
+        (== ch \r) \return
+        (== ch \n) \newline
         (== ch \\) \\
         (== ch \") \"
         (== ch \a) \a
-        (== ch \b) \b
-        (== ch \f) \f
+        (== ch \b) \backspace
+        (== ch \f) \formfeed
         ;; TODO: allow unicode escape sequences
         :else (throw-unknown-escape ch stream))
       (throw-incomplete-escape stream))
